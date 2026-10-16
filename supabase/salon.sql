@@ -387,3 +387,9 @@ grant execute on function
   public.salon_ajustes_list(), public.salon_ajuste_agregar(text, date, text, numeric, text), public.salon_ajuste_borrar(text, bigint),
   public.salon_stock_ver(int), public.salon_control(date, date)
 to anon, authenticated;
+
+-- ---------- utensilios (conteo aparte, jueves / sábado / lunes) ----------
+-- Tablas utensilios, ut_conteos, ut_novedades y funciones salon_ut_*: ver migración flama_salon_utensilios.
+-- Resumen por utensilio: diferencia = último conteo − stock inicial; justificado = incorporaciones − bajas desde la fecha inicial;
+-- sin justificar = diferencia − justificado. El primer conteo de un utensilio sin inicial lo define. salon_ut_nuevo_periodo
+-- (PIN) pasa el inicial al último conteo sin borrar el historial.

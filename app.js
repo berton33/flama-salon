@@ -63,6 +63,7 @@
       case 'ingresos': topbarSub.textContent = 'Ingresos'; return renderIngresos();
       case 'stock': topbarSub.textContent = 'Ver stock'; return renderStock();
       case 'control': topbarSub.textContent = 'Control'; return renderControl();
+      case 'utensilios': topbarSub.textContent = 'Utensilios'; return renderUtensilios(id || 'conteo');
       case 'ajustes': topbarSub.textContent = 'Ajustes'; return renderAjustes();
       default: location.hash = '#/';
     }
@@ -75,6 +76,7 @@
       <a href="#/ingresos">Ingresos</a>
       <a href="#/stock">Ver stock</a>
       <a href="#/control">Control</a>
+      <a href="#/utensilios">Utensilios</a>
       <a href="#/ajustes">Ajustes</a>
     </div>`;
   }
@@ -389,6 +391,169 @@
     await load();
   }
 
+
+  // ---------- utensilios: conteo / novedades / resumen ----------
+  function utNav(sub) {
+    return `<a class="back" href="#/">‹ Inicio</a><h1>Utensilios</h1>
+      <div class="subnav"><a href="#/utensilios/conteo" class="${sub === 'conteo' ? 'on' : ''}">Conteo</a><a href="#/utensilios/novedades" class="${sub === 'novedades' ? 'on' : ''}">Novedades</a><a href="#/utensilios/resumen" class="${sub === 'resumen' ? 'on' : ''}">Resumen</a></div>`;
+  }
+
+  async function renderUtensilios(sub) {
+    if (sub === 'novedades') return renderUtNovedades();
+    if (sub === 'resumen') return renderUtResumen();
+    return renderUtConteo();
+  }
+
+  async function renderUtConteo() {
+    app.innerHTML = utNav('conteo') + `<p class="msg">Cargando…</p>`;
+    let st;
+    try { st = await API.utGet(8); } catch (e) { app.innerHTML = utNav('conteo') + `<div class="status err">${errorMsg(e)}</div>`; return; }
+    const uts = st.utensilios;
+    const sinInicial = uts.filter((u) => u.inicial == null).length;
+    let html = utNav('conteo') + `
+      <div class="card">
+        <label class="field"><span>Fecha del conteo</span><input id="ut-fecha" type="date" value="${hoyISO()}" max="${hoyISO()}"></label>
+        <div id="ut-info" class="lede" style="margin:0"></div>
+        <div id="ut-pin-wrap" hidden><label class="field"><span>PIN (día anterior a ayer)</span><input id="ut-pin" type="password" inputmode="numeric" autocomplete="off" value="${esc(API.pin.get())}"></label></div>
+      </div>
+      <p class="lede">Contar siempre lo mismo: lo que está en uso más lo guardado. Si una cantidad es menor que el conteo anterior se marca en bordó; si es mayor, en naranja. Toda diferencia se explica en Novedades.</p>
+      ${sinInicial ? `<div class="warn"><span class="k">Stock inicial</span>${sinInicial === uts.length ? 'Todavía no hay stock inicial: este primer conteo queda como punto de partida para el control.' : `${sinInicial} utensilios sin stock inicial: su primer conteo queda como punto de partida.`}</div>` : ''}
+      <div class="card">` + uts.map((u) => `
+        <div class="urow" data-id="${esc(u.id)}">
+          <div><div class="name">${esc(u.nombre)}</div><div class="sub" data-sub></div><div class="dif" data-dif></div></div>
+          <input type="text" inputmode="numeric" autocomplete="off" placeholder="—">
+        </div>`).join('') + `</div>
+      <div class="card"><div id="ut-status"></div><button class="btn" id="ut-guardar">Guardar conteo</button></div>`;
+    app.innerHTML = html;
+
+    const fechaEl = document.getElementById('ut-fecha'), status = document.getElementById('ut-status'), pinWrap = document.getElementById('ut-pin-wrap');
+    const rows = Array.from(app.querySelectorAll('.urow'));
+    let anterior = {};
+    const paintDif = (r) => {
+      const prev = anterior[r.dataset.id]; const v = num(r.querySelector('input').value);
+      r.classList.remove('menos', 'mas');
+      const dif = r.querySelector('[data-dif]');
+      if (!prev || v == null) { dif.textContent = ''; return; }
+      const d = v - Number(prev.cantidad);
+      if (d < 0) { r.classList.add('menos'); dif.textContent = `${fmt(d)} respecto del ${fechaCorta(prev.fecha)}: cargar la novedad`; }
+      else if (d > 0) { r.classList.add('mas'); dif.textContent = `+${fmt(d)} respecto del ${fechaCorta(prev.fecha)}`; }
+      else dif.textContent = 'Igual que el conteo anterior';
+    };
+    rows.forEach((r) => r.querySelector('input').addEventListener('input', () => paintDif(r)));
+
+    async function cargarFecha() {
+      const f = fechaEl.value; if (!f) return; status.innerHTML = '';
+      try {
+        const c = await API.utConteoGet(f);
+        anterior = c.anterior || {}; pinWrap.hidden = !c.requiere_pin;
+        rows.forEach((r) => {
+          const it = (c.items || []).find((x) => x.utensilio_id === r.dataset.id); const prev = anterior[r.dataset.id];
+          r.querySelector('input').value = it ? String(it.cantidad) : '';
+          r.querySelector('[data-sub]').textContent = prev ? `Anterior ${fechaCorta(prev.fecha)}: ${fmt(prev.cantidad)}` : 'Sin conteo anterior';
+          paintDif(r);
+        });
+        document.getElementById('ut-info').textContent = (c.items || []).length ? `Conteo de ${fechaLarga(f)} ya cargado. Podés corregirlo.` : `${fechaLarga(f)}: sin conteo cargado.`;
+      } catch (e) { status.innerHTML = `<div class="status err">${errorMsg(e)}</div>`; }
+    }
+    fechaEl.addEventListener('change', cargarFecha);
+    await cargarFecha();
+
+    document.getElementById('ut-guardar').addEventListener('click', async () => {
+      const f = fechaEl.value; if (!f) { status.innerHTML = `<div class="status err">Elegí la fecha.</div>`; return; }
+      const items = [];
+      for (const r of rows) {
+        const raw = r.querySelector('input').value.trim();
+        if (raw && (num(raw) == null || num(raw) < 0)) { status.innerHTML = `<div class="status err">Cantidad inválida en ${esc(r.querySelector('.name').textContent)}.</div>`; return; }
+        items.push({ utensilio_id: r.dataset.id, cantidad: raw === '' ? null : num(raw) });
+      }
+      if (!items.some((i) => i.cantidad != null)) { status.innerHTML = `<div class="status err">No hay cantidades cargadas.</div>`; return; }
+      const p = pinWrap.hidden ? null : document.getElementById('ut-pin').value.trim();
+      const btn = document.getElementById('ut-guardar'); btn.disabled = true; status.innerHTML = '';
+      try {
+        await API.utConteoGuardar(f, items, p);
+        if (p) API.pin.set(p);
+        const menos = rows.filter((r) => r.classList.contains('menos')).length;
+        status.innerHTML = `<div class="status ok">Conteo de ${esc(fechaLarga(f))} guardado.${menos ? ` Hay ${menos} utensilios con menos que el conteo anterior: <a class="link" href="#/utensilios/novedades">cargá las novedades</a>.` : ''}</div>`;
+        const w = document.querySelector('.warn'); if (w && sinInicial) w.remove();
+      } catch (e) {
+        if (e.code === 'PIN_REQUERIDO') pinWrap.hidden = false;
+        if (e.code === 'PIN_INCORRECTO') API.pin.clear();
+        status.innerHTML = `<div class="status err">${errorMsg(e)}</div>`;
+      } finally { btn.disabled = false; }
+    });
+  }
+
+  async function renderUtNovedades() {
+    app.innerHTML = utNav('novedades') + `<p class="msg">Cargando…</p>`;
+    let st;
+    try { st = await API.utGet(8); } catch (e) { app.innerHTML = utNav('novedades') + `<div class="status err">${errorMsg(e)}</div>`; return; }
+    let tipo = 'BAJA', sel = null;
+    app.innerHTML = utNav('novedades') + `
+      <p class="lede">Toda diferencia tiene que quedar explicada acá. BAJA es lo que se rompió o perdió; INCORPORACIÓN lo que se sumó por compra o reposición. La cantidad va siempre en positivo.</p>
+      <div class="card">
+        <label class="field"><span>Fecha</span><input id="nv-fecha" type="date" value="${hoyISO()}" max="${hoyISO()}"></label>
+        <div class="field"><span>Utensilio</span><div class="btnrow" id="nv-ut" style="grid-template-columns:1fr 1fr">${st.utensilios.map((u) => `<button type="button" class="btn secondary small" data-id="${esc(u.id)}" style="margin:0">${esc(u.nombre)}</button>`).join('')}</div></div>
+        <div class="field"><span>Tipo</span><div class="btnrow tipo-tgl" id="nv-tipo"><button type="button" class="btn secondary small baja on" data-t="BAJA" style="margin:0">Baja (rotura, extravío)</button><button type="button" class="btn secondary small inc" data-t="INCORPORACION" style="margin:0">Incorporación (compra)</button></div></div>
+        <label class="field"><span>Cantidad</span><input id="nv-cant" type="text" inputmode="numeric" autocomplete="off"></label>
+        <label class="field"><span>Motivo</span><input id="nv-motivo" type="text" autocomplete="off" placeholder="Ej.: se rompieron en el lavado"></label>
+        <div id="nv-status"></div><button class="btn" id="nv-ok">Guardar novedad</button>
+      </div>
+      <h2>Novedades cargadas</h2><div class="card" id="nv-list"></div>`;
+    const status = document.getElementById('nv-status');
+    document.querySelectorAll('#nv-ut button').forEach((b) => b.addEventListener('click', () => { sel = b.dataset.id; document.querySelectorAll('#nv-ut button').forEach((x) => x.classList.toggle('on', x === b)); }));
+    document.querySelectorAll('#nv-tipo button').forEach((b) => b.addEventListener('click', () => { tipo = b.dataset.t; document.querySelectorAll('#nv-tipo button').forEach((x) => x.classList.toggle('on', x === b)); }));
+    const paintList = (list) => {
+      const box = document.getElementById('nv-list');
+      if (!list.length) { box.innerHTML = `<p class="msg" style="padding:12px 0">Sin novedades cargadas.</p>`; return; }
+      box.innerHTML = `<table><tbody>` + list.map((n) => `<tr><td><b>${esc(n.utensilio)}</b><br><span class="sub" style="color:var(--gray);font-size:14px">${esc(fechaCorta(n.fecha))} · ${esc(n.motivo)}</span></td><td class="q" style="color:${n.tipo === 'BAJA' ? 'var(--brand)' : '#b36b00'}">${n.tipo === 'BAJA' ? '−' : '+'}${fmt(n.cantidad)}</td><td style="width:40px;text-align:right"><button type="button" class="link-btn nv-del" data-id="${n.id}" aria-label="Borrar">✕</button></td></tr>`).join('') + `</tbody></table><div id="nv-del-box"></div>`;
+      box.querySelectorAll('.nv-del').forEach((btn) => btn.addEventListener('click', () => {
+        document.getElementById('nv-del-box').innerHTML = `<div class="warn"><span class="k">Borrar novedad (requiere PIN)</span><label class="field"><span>PIN</span><input id="nv-del-pin" type="password" inputmode="numeric" autocomplete="off" value="${esc(API.pin.get())}"></label><div class="btnrow"><button type="button" class="btn small" id="nv-del-ok">Borrar</button><button type="button" class="btn secondary small" id="nv-del-no">Cancelar</button></div><div id="nv-del-status"></div></div>`;
+        document.getElementById('nv-del-no').addEventListener('click', () => { document.getElementById('nv-del-box').innerHTML = ''; });
+        document.getElementById('nv-del-ok').addEventListener('click', async () => {
+          const p = document.getElementById('nv-del-pin').value.trim();
+          try { const r = await API.utNovedadBorrar(p, Number(btn.dataset.id)); API.pin.set(p); paintList(r.novedades); }
+          catch (e) { if (e.code === 'PIN_INCORRECTO') API.pin.clear(); document.getElementById('nv-del-status').innerHTML = `<div class="status err">${errorMsg(e)}</div>`; }
+        });
+      }));
+    };
+    paintList(st.novedades || []);
+    document.getElementById('nv-ok').addEventListener('click', async () => {
+      status.innerHTML = '';
+      const n = num(document.getElementById('nv-cant').value);
+      if (!sel) { status.innerHTML = `<div class="status err">Elegí el utensilio.</div>`; return; }
+      if (n == null || n <= 0) { status.innerHTML = `<div class="status err">Ingresá la cantidad en positivo.</div>`; return; }
+      if (!document.getElementById('nv-motivo').value.trim()) { status.innerHTML = `<div class="status err">Ingresá el motivo.</div>`; return; }
+      const btn = document.getElementById('nv-ok'); btn.disabled = true;
+      try {
+        const r = await API.utNovedadAgregar(document.getElementById('nv-fecha').value, sel, tipo, n, document.getElementById('nv-motivo').value);
+        status.innerHTML = `<div class="status ok">Novedad guardada.</div>`;
+        document.getElementById('nv-cant').value = ''; document.getElementById('nv-motivo').value = '';
+        paintList(r.novedades);
+      } catch (e) { status.innerHTML = `<div class="status err">${errorMsg(e)}</div>`; }
+      finally { btn.disabled = false; }
+    });
+  }
+
+  async function renderUtResumen() {
+    app.innerHTML = utNav('resumen') + `<p class="msg">Cargando…</p>`;
+    let st;
+    try { st = await API.utGet(8); } catch (e) { app.innerHTML = utNav('resumen') + `<div class="status err">${errorMsg(e)}</div>`; return; }
+    const uts = st.utensilios, fechas = st.fechas || [];
+    const sinJ = uts.filter((u) => u.diferencia != null && Number(u.diferencia) - Number(u.justificado) !== 0).length;
+    let html = utNav('resumen') + `<p class="lede">Compara el último conteo contra el stock inicial y descuenta lo justificado en Novedades. La columna <b>sin justificar</b> es la que importa: lo que falta y nadie reportó.${uts.some((u) => u.inicial != null) ? ` Ahora mismo: <b>${sinJ}</b> utensilios con diferencia sin justificar.` : ''}</p>`;
+    html += `<div class="card"><div class="scrollx"><table class="ctl"><thead><tr><th>Utensilio</th><th class="q">Inicial</th><th class="q">Último</th><th class="q">Dif.</th><th class="q">Justif.</th><th class="q">Sin justificar</th></tr></thead><tbody>` +
+      uts.map((u) => { const d = u.diferencia == null ? null : Number(u.diferencia); const sj = d == null ? null : d - Number(u.justificado); const cls = sj == null ? '' : sj < 0 ? 'neg' : sj > 0 ? 'pos' : 'ok';
+        return `<tr class="${cls}"><td><b>${esc(u.nombre)}</b>${u.inicial_fecha ? `<br><span class="sub">inicial ${esc(fechaCorta(u.inicial_fecha))}${u.ultimo_fecha ? ` · último ${esc(fechaCorta(u.ultimo_fecha))}` : ''}</span>` : '<br><span class="sub">sin stock inicial</span>'}</td>
+          <td class="q">${u.inicial != null ? fmt(u.inicial) : '—'}</td><td class="q">${u.ultimo != null ? fmt(u.ultimo) : '—'}</td><td class="q">${d == null ? '—' : (d > 0 ? '+' : '') + fmt(d)}</td><td class="q">${Number(u.justificado) ? (Number(u.justificado) > 0 ? '+' : '') + fmt(u.justificado) : '0'}</td><td class="q desc">${sj == null ? '—' : (sj > 0 ? '+' : '') + fmt(sj)}</td></tr>`; }).join('') + `</tbody></table></div></div>`;
+    if (fechas.length) {
+      html += `<h2>Historial de conteos</h2><p class="lede">Últimos ${fechas.length} conteos. En bordó, menos que el conteo anterior; en naranja, más.</p><div class="card"><div class="scrollx"><table class="hist"><thead><tr><th>Utensilio</th>` + fechas.map((f) => `<th class="q">${esc(fechaCorta(f))}</th>`).join('') + `</tr></thead><tbody>` +
+        uts.map((u) => { const asc = [...fechas].reverse(); const cells = {};
+          asc.forEach((f, i) => { const v = u.conteos[f]; let prev = null; for (let j = i - 1; j >= 0; j--) { if (u.conteos[asc[j]] != null) { prev = u.conteos[asc[j]]; break; } } cells[f] = v == null ? '' : prev == null ? '' : Number(v) < Number(prev) ? 'menos' : Number(v) > Number(prev) ? 'mas' : ''; });
+          return `<tr><td><b>${esc(u.nombre)}</b></td>` + fechas.map((f, idx) => `<td class="q ${idx === 0 ? 'ult' : ''} ${cells[f]}">${u.conteos[f] != null ? fmt(u.conteos[f]) : '<span class="dash">—</span>'}</td>`).join('') + `</tr>`; }).join('') + `</tbody></table></div></div>`;
+    }
+    app.innerHTML = html;
+  }
+
   // ---------- ajustes (PIN) ----------
   function renderDefinirPin(volver, cambio) {
     app.innerHTML = `<a class="back" href="#/">‹ Inicio</a><h1>${cambio ? 'Cambiar PIN' : 'Definir PIN'}</h1>
@@ -451,6 +616,19 @@
       <h2>Tragos y recetas</h2>
       <p class="lede">Cuánto consume cada trago de cada bebida: mixers en unidades, destilados en ml.</p>
       <div id="tragos-box"></div>
+      <h2>Utensilios</h2>
+      <div class="card" id="ut-adm"><p class="msg">Cargando…</p></div>
+      <div class="card">
+        <strong>Nuevo utensilio</strong>
+        <label class="field"><span>Nombre</span><input id="nu-nombre" type="text" autocomplete="off" placeholder="Ej.: Bandejas"></label>
+        <label class="field"><span>Stock inicial (opcional; si queda vacío lo define el primer conteo)</span><input id="nu-inicial" type="text" inputmode="numeric" autocomplete="off"></label>
+        <div id="nu-status"></div><button class="btn small" id="nu-ok">Dar de alta</button>
+      </div>
+      <div class="card">
+        <strong>Nuevo período de utensilios</strong>
+        <p class="lede">El stock inicial de cada utensilio pasa a ser su último conteo. Las novedades anteriores dejan de contar para el resumen; el historial se conserva.</p>
+        <div id="np-status"></div><button class="btn secondary small" id="np-ok">Cerrar período y arrancar de nuevo</button>
+      </div>
       <div class="card"><strong>Nuevo trago</strong><label class="field"><span>Nombre</span><input id="nt-nombre" type="text" autocomplete="off" placeholder="Ej.: Gin Tonic"></label><div id="nt-status"></div><button class="btn small" id="nt-ok">Crear trago (después cargá su receta)</button></div>`;
     app.innerHTML = html;
 
@@ -537,6 +715,40 @@
       });
     };
     paintTragos();
+
+    // utensilios: activar/desactivar y corregir stock inicial
+    const paintUt = (st) => {
+      const box = document.getElementById('ut-adm');
+      box.innerHTML = `<table><tbody>` + st.utensilios.map((u) => `<tr data-id="${esc(u.id)}"><td><b>${esc(u.nombre)}</b><br><span class="sub" style="color:var(--gray);font-size:13px">inicial ${u.inicial != null ? fmt(u.inicial) + (u.inicial_fecha ? ` (${fechaCorta(u.inicial_fecha)})` : '') : 'sin definir'}</span></td>
+        <td class="q" style="width:100px"><input class="u-ini" type="text" inputmode="numeric" autocomplete="off" placeholder="inicial" value="${u.inicial != null ? esc(String(u.inicial)) : ''}" style="width:90px;font:inherit;font-size:18px;font-weight:800;text-align:right;padding:6px 8px;border:2px solid var(--black);border-radius:8px"></td>
+        <td style="width:120px;text-align:right"><button type="button" class="btn secondary small u-save" style="margin:0 0 4px">Guardar</button><button type="button" class="btn secondary small u-tgl" style="margin:0">${u.activo ? 'Desactivar' : 'Activar'}</button></td></tr>`).join('') + `</tbody></table><div id="ut-adm-status"></div>`;
+      box.querySelectorAll('tr[data-id]').forEach((tr) => {
+        const u = st.utensilios.find((x) => x.id === tr.dataset.id);
+        tr.querySelector('.u-save').addEventListener('click', async () => {
+          const ini = tr.querySelector('.u-ini').value.trim();
+          try { paintUt(await API.utGuardar(pinVal(), { ...u, inicial: ini === '' ? null : num(ini), inicial_fecha: ini === '' ? null : (u.inicial_fecha || hoyISO()) })); API.pin.set(pinVal()); }
+          catch (e) { onPinErr(e, document.getElementById('ut-adm-status')); }
+        });
+        tr.querySelector('.u-tgl').addEventListener('click', async () => {
+          try { paintUt(await API.utGuardar(pinVal(), { ...u, activo: !u.activo })); API.pin.set(pinVal()); }
+          catch (e) { onPinErr(e, document.getElementById('ut-adm-status')); }
+        });
+      });
+    };
+    try { paintUt(await API.utGet(1)); } catch (e) { document.getElementById('ut-adm').innerHTML = `<div class="status err">${errorMsg(e)}</div>`; }
+    document.getElementById('nu-ok').addEventListener('click', async () => {
+      const st = document.getElementById('nu-status'); st.innerHTML = '';
+      const nombre = document.getElementById('nu-nombre').value.trim(); const ini = document.getElementById('nu-inicial').value.trim();
+      if (!nombre) { st.innerHTML = `<div class="status err">Ingresá el nombre.</div>`; return; }
+      try { paintUt(await API.utGuardar(pinVal(), { nombre, orden: 500, inicial: ini === '' ? null : num(ini), inicial_fecha: ini === '' ? null : hoyISO() })); API.pin.set(pinVal()); st.innerHTML = `<div class="status ok">${esc(nombre)} dado de alta.</div>`; document.getElementById('nu-nombre').value = ''; document.getElementById('nu-inicial').value = ''; }
+      catch (e) { onPinErr(e, st); }
+    });
+    document.getElementById('np-ok').addEventListener('click', async () => {
+      const st = document.getElementById('np-status'); st.innerHTML = '';
+      try { paintUt(await API.utNuevoPeriodo(pinVal())); API.pin.set(pinVal()); st.innerHTML = `<div class="status ok">Período cerrado: el stock inicial ahora es el último conteo.</div>`; }
+      catch (e) { onPinErr(e, st); }
+    });
+
     document.getElementById('nt-ok').addEventListener('click', async () => {
       const st = document.getElementById('nt-status'); const nombre = document.getElementById('nt-nombre').value.trim();
       if (!nombre) { st.innerHTML = `<div class="status err">Ingresá el nombre.</div>`; return; }

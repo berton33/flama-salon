@@ -8,7 +8,8 @@ Control de bebidas del salón: cierre diario, ingresos de mercadería, stock y c
 - **Ingresos** (salón, sin PIN): fecha, bebida de la lista y cantidad. Si la bebida tiene otras presentaciones (botella y lata) muestra un aviso para confirmar. "Eventual" da de alta una bebida que no está en la lista. Borrar un ingreso requiere PIN.
 - **Ver stock**: últimos 7 cierres en columnas.
 - **Control**: para cada cierre, teórico = stock del cierre anterior + ingresos + ajustes − ventas directas − consumo por tragos; descuadre = real − teórico. Resumen del período y detalle día por día por bebida.
-- **Ajustes** (PIN): ajustes de stock con motivo, alta y baja de bebidas, tragos y recetas, cambio de PIN.
+- **Utensilios** (conteo aparte, jueves, sábado y lunes): **Conteo** por utensilio con alerta si baja (bordó) o sube (naranja) respecto del conteo anterior; **Novedades** de baja o incorporación con motivo; **Resumen** con inicial, último, diferencia, justificado y sin justificar, más el historial de conteos. El primer conteo de cada utensilio define su stock inicial.
+- **Ajustes** (PIN): ajustes de stock con motivo, alta y baja de bebidas, tragos y recetas, utensilios (alta, baja, corrección del stock inicial, cierre de período), cambio de PIN.
 
 ## Base de datos
 

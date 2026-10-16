@@ -262,3 +262,22 @@ table.ctl .sub { color: var(--gray); font-size: 12px; font-weight: 500; }
 .fracs button:first-child, .fracs button:last-child { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
 .fracs button.on { background: var(--brand); border-color: var(--brand); color: #fff; }
 .crow[data-tipo="ml"] .inputs { grid-template-columns: 110px 1fr; }
+
+/* ---------- utensilios ---------- */
+.subnav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+.subnav a { display: flex; align-items: center; justify-content: center; min-height: 52px; border: 2px solid var(--brand); border-radius: 10px; color: var(--brand); font-family: var(--font-title); text-transform: uppercase; font-weight: 800; font-size: 17px; }
+.subnav a.on { background: var(--brand); color: #fff; }
+.urow { display: grid; grid-template-columns: 1fr 120px; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.urow:last-child { border-bottom: none; }
+.urow .name { font-weight: 800; font-size: 20px; }
+.urow .sub { color: var(--gray); font-size: 14px; margin-top: 2px; }
+.urow input { width: 100%; font: inherit; font-size: 24px; font-weight: 800; padding: 8px 10px; min-height: 56px; border: 2px solid var(--black); border-radius: 10px; text-align: right; }
+.urow.menos input { border-color: var(--brand); background: #fbeef0; color: var(--brand); }
+.urow.mas input { border-color: #b36b00; background: #fff3d6; color: #b36b00; }
+.urow .dif { font-weight: 800; font-size: 14px; }
+.urow.menos .dif { color: var(--brand); }
+.urow.mas .dif { color: #b36b00; }
+table.hist td.q.menos { background: #fbeef0; color: var(--brand); }
+table.hist td.q.mas { background: #fff3d6; color: #b36b00; }
+.tipo-tgl button.baja.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+.tipo-tgl button.inc.on { background: #b36b00; border-color: #b36b00; color: #fff; }

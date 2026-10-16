@@ -51,6 +51,13 @@
     ajusteAgregar: (p, fecha, bebidaId, cantidad, motivo) => rpc('salon_ajuste_agregar', { p_pin: p, p_fecha: fecha, p_bebida_id: bebidaId, p_cantidad: cantidad, p_motivo: motivo }),
     ajusteBorrar: (p, id) => rpc('salon_ajuste_borrar', { p_pin: p, p_id: id }),
     stockVer: (n) => rpc('salon_stock_ver', { p_n: n || 7 }),
+    utGet: (n) => rpc('salon_ut_get', { p_n: n || 8 }),
+    utConteoGet: (fecha) => rpc('salon_ut_conteo_get', { p_fecha: fecha }),
+    utConteoGuardar: (fecha, items, p) => rpc('salon_ut_conteo_guardar', { p_fecha: fecha, p_items: items, p_pin: p || null }),
+    utNovedadAgregar: (fecha, utId, tipo, cantidad, motivo) => rpc('salon_ut_novedad_agregar', { p_fecha: fecha, p_utensilio_id: utId, p_tipo: tipo, p_cantidad: cantidad, p_motivo: motivo }),
+    utNovedadBorrar: (p, id) => rpc('salon_ut_novedad_borrar', { p_pin: p, p_id: id }),
+    utGuardar: (p, ut) => rpc('salon_ut_guardar', { p_pin: p, p_ut: ut }),
+    utNuevoPeriodo: (p) => rpc('salon_ut_nuevo_periodo', { p_pin: p }),
     control: (desde, hasta) => rpc('salon_control', { p_desde: desde, p_hasta: hasta })
   };
 })();
