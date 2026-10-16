@@ -255,3 +255,10 @@ table.ctl.inner td, table.ctl.inner th { font-size: 14px; }
 table.ctl.inner td.q { font-size: 14px; }
 table.ctl.inner td.q.desc { font-size: 16px; }
 table.ctl .sub { color: var(--gray); font-size: 12px; font-weight: 500; }
+
+.crow .flabel { display: block; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gray); font-family: var(--font-title); font-weight: 700; margin-bottom: 3px; }
+.fracs { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.fracs button { font: inherit; font-size: 15px; font-weight: 800; min-height: 56px; padding: 0 2px; border: 2px solid var(--black); border-radius: 8px; background: #fff; color: var(--black); cursor: pointer; }
+.fracs button:first-child, .fracs button:last-child { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.fracs button.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+.crow[data-tipo="ml"] .inputs { grid-template-columns: 110px 1fr; }

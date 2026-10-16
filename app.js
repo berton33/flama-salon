@@ -31,6 +31,9 @@
     return `No se pudo conectar con la base (${esc(e && e.message)}).`;
   };
 
+  // Fracciones de botella abierta para destilados (valor × capacidad = ml).
+  const FRACS = [{ v: 0, t: 'vacía' }, { v: 0.25, t: '¼' }, { v: 1 / 3, t: '⅓' }, { v: 0.5, t: '½' }, { v: 2 / 3, t: '⅔' }, { v: 0.75, t: '¾' }, { v: 1, t: 'llena' }];
+
   const bebida = (id) => (CAT.bebidas || []).find((b) => b.id === id);
   const trago = (id) => (CAT.tragos || []).find((t) => t.id === id);
   const bebidasActivas = () => (CAT.bebidas || []).filter((b) => b.activo);
@@ -120,7 +123,7 @@
           <div class="name">${esc(b.nombre)}<span class="sub">se cuenta en ml · botella de ${fmt(b.capacidad_ml)} ml</span></div>
           <div class="inputs">
             <label><span>Bot. cerradas</span><input type="text" inputmode="decimal" autocomplete="off" data-f="botellas"></label>
-            <label><span>ml abierta</span><input type="text" inputmode="decimal" autocomplete="off" data-f="ml"></label>
+            <div><span class="flabel">Botella abierta</span><div class="fracs" data-fracs>${FRACS.map((f) => `<button type="button" data-frac="${f.v}">${f.t}</button>`).join('')}</div><input type="hidden" data-f="ml"></div>
           </div>
           <div class="calc" data-calc></div>
         </div>` : `
@@ -153,11 +156,23 @@
 
     rows.filter((r) => r.dataset.tipo === 'ml').forEach((r) => {
       const b = bebida(r.dataset.id);
+      const mlEl = r.querySelector('[data-f=ml]');
       const recalc = () => {
-        const bot = num(r.querySelector('[data-f=botellas]').value), ml = num(r.querySelector('[data-f=ml]').value);
+        const bot = num(r.querySelector('[data-f=botellas]').value), ml = num(mlEl.value);
         r.querySelector('[data-calc]').textContent = (bot == null && ml == null) ? '' : `Total: ${fmt((bot || 0) * b.capacidad_ml + (ml || 0))} ml`;
       };
-      r.querySelectorAll('input').forEach((i) => i.addEventListener('input', recalc));
+      // Fracción de la botella abierta: se guarda en ml (fracción × capacidad). Tocar la misma fracción la deselecciona.
+      const setFrac = (v) => {
+        r.querySelectorAll('[data-frac]').forEach((btn) => btn.classList.toggle('on', v != null && Math.abs(Number(btn.dataset.frac) - v) < 1e-6));
+        mlEl.value = v == null ? '' : String(Math.round(v * b.capacidad_ml * 10) / 10);
+        recalc();
+      };
+      r.querySelectorAll('[data-frac]').forEach((btn) => btn.addEventListener('click', () => {
+        const v = Number(btn.dataset.frac);
+        setFrac(btn.classList.contains('on') ? null : v);
+      }));
+      r._setMl = (ml) => setFrac(ml == null ? null : ml / b.capacidad_ml);
+      r.querySelector('[data-f=botellas]').addEventListener('input', recalc);
     });
 
     async function cargarFecha() {
@@ -171,8 +186,7 @@
           const it = (c.bebidas || []).find((x) => x.bebida_id === r.dataset.id);
           if (r.dataset.tipo === 'ml') {
             r.querySelector('[data-f=botellas]').value = it && it.botellas_cerradas != null ? String(it.botellas_cerradas).replace('.', ',') : '';
-            r.querySelector('[data-f=ml]').value = it && it.ml_abierta != null ? String(it.ml_abierta).replace('.', ',') : '';
-            r.querySelector('[data-f=botellas]').dispatchEvent(new Event('input'));
+            r._setMl(it && it.ml_abierta != null ? Number(it.ml_abierta) : null);
           } else {
             r.querySelector('[data-f=stock]').value = it && it.stock != null ? String(it.stock).replace('.', ',') : '';
             const v = r.querySelector('[data-f=venta]'); if (v) v.value = it && it.venta_directa != null ? String(it.venta_directa).replace('.', ',') : '';
