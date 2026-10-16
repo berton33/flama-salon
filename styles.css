@@ -281,3 +281,21 @@ table.hist td.q.menos { background: #fbeef0; color: var(--brand); }
 table.hist td.q.mas { background: #fff3d6; color: #b36b00; }
 .tipo-tgl button.baja.on { background: var(--brand); border-color: var(--brand); color: #fff; }
 .tipo-tgl button.inc.on { background: #b36b00; border-color: #b36b00; color: #fff; }
+
+/* ---------- caja ---------- */
+.brow { display: grid; grid-template-columns: 1fr 100px 130px; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.brow:last-child { border-bottom: none; }
+.brow .den { font-family: var(--font-title); font-weight: 800; font-size: 22px; }
+.brow input { width: 100%; font: inherit; font-size: 24px; font-weight: 800; padding: 8px 10px; min-height: 56px; border: 2px solid var(--black); border-radius: 10px; text-align: center; }
+.brow .sub { text-align: right; font-weight: 700; font-size: 18px; color: var(--gray); font-variant-numeric: tabular-nums; }
+.brow.total { border-top: 3px solid var(--black); border-bottom: none; margin-top: 4px; padding-top: 12px; }
+.brow.total .den { font-size: 17px; letter-spacing: 0.04em; text-transform: uppercase; }
+.brow.total .sub { color: var(--black); font-size: 24px; font-weight: 800; }
+.grow { display: grid; grid-template-columns: 1fr 130px 40px; gap: 8px; align-items: center; padding: 6px 0; }
+.grow input { width: 100%; font: inherit; font-size: 18px; font-weight: 700; padding: 8px 10px; min-height: 52px; border: 2px solid var(--black); border-radius: 10px; }
+.grow .g-monto { text-align: right; font-size: 20px; font-weight: 800; }
+.cajares { border: 3px solid var(--line); border-radius: var(--radius); padding: 16px; margin: 16px 0; font-size: 18px; font-weight: 600; background: var(--panel); }
+.cajares .k { display: block; font-family: var(--font-title); text-transform: uppercase; font-size: 32px; font-weight: 800; margin-bottom: 4px; }
+.cajares.ok { border-color: #1e7b3a; background: #e9f7ee; } .cajares.ok .k { color: #1e7b3a; }
+.cajares.falta { border-color: var(--brand); background: #fbeef0; } .cajares.falta .k { color: var(--brand); }
+.cajares.sobra { border-color: #b36b00; background: #fff3d6; } .cajares.sobra .k { color: #b36b00; }

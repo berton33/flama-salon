@@ -9,6 +9,7 @@ Control de bebidas del salón: cierre diario, ingresos de mercadería, stock y c
 - **Ver stock**: últimos 7 cierres en columnas.
 - **Control**: para cada cierre, teórico = stock del cierre anterior + ingresos + ajustes − ventas directas − consumo por tragos; descuadre = real − teórico. Resumen del período y detalle día por día por bebida.
 - **Utensilios** (conteo aparte, jueves, sábado y lunes): **Conteo** por utensilio con alerta si baja (bordó) o sube (naranja) respecto del conteo anterior; **Novedades** de baja o incorporación con motivo; **Resumen** con inicial, último, diferencia, justificado y sin justificar, más el historial de conteos. El primer conteo de cada utensilio define su stock inicial.
+- **Caja**: calculadora para cerrar la caja. Contador de billetes por denominación (en `config.js`), pagos de caja con concepto, efectivo según el sistema y resultado: Caja OK si contado = sistema − pagos (coincidencia exacta), o cuánto falta o sobra. No guarda nada en la base; los valores quedan solo en la pestaña hasta cerrarla.
 - **Ajustes** (PIN): ajustes de stock con motivo, alta y baja de bebidas, tragos y recetas, utensilios (alta, baja, corrección del stock inicial, cierre de período), cambio de PIN.
 
 ## Base de datos

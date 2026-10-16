@@ -64,6 +64,7 @@
       case 'stock': topbarSub.textContent = 'Ver stock'; return renderStock();
       case 'control': topbarSub.textContent = 'Control'; return renderControl();
       case 'utensilios': topbarSub.textContent = 'Utensilios'; return renderUtensilios(id || 'conteo');
+      case 'caja': topbarSub.textContent = 'Caja'; return renderCaja();
       case 'ajustes': topbarSub.textContent = 'Ajustes'; return renderAjustes();
       default: location.hash = '#/';
     }
@@ -77,6 +78,7 @@
       <a href="#/stock">Ver stock</a>
       <a href="#/control">Control</a>
       <a href="#/utensilios">Utensilios</a>
+      <a href="#/caja">Caja</a>
       <a href="#/ajustes">Ajustes</a>
     </div>`;
   }
@@ -552,6 +554,83 @@
           return `<tr><td><b>${esc(u.nombre)}</b></td>` + fechas.map((f, idx) => `<td class="q ${idx === 0 ? 'ult' : ''} ${cells[f]}">${u.conteos[f] != null ? fmt(u.conteos[f]) : '<span class="dash">—</span>'}</td>`).join('') + `</tr>`; }).join('') + `</tbody></table></div></div>`;
     }
     app.innerHTML = html;
+  }
+
+
+  // ---------- caja: contador de billetes y gastos (sin fecha, sin base; solo ayuda a cerrar) ----------
+  const pesos = (n) => '$ ' + Math.round(Number(n) || 0).toLocaleString('es-AR');
+
+  function renderCaja() {
+    const billetes = (window.FLAMA_CONFIG && window.FLAMA_CONFIG.billetes) || [];
+    let saved = null;
+    try { saved = JSON.parse(sessionStorage.getItem('salon_caja') || 'null'); } catch (_) { saved = null; }
+    const gastos0 = (saved && saved.gastos && saved.gastos.length) ? saved.gastos : [{ concepto: '', monto: '' }];
+
+    app.innerHTML = `<a class="back" href="#/">‹ Inicio</a><h1>Caja</h1>
+      <p class="lede">Para cerrar la caja. Cargá cuántos billetes hay de cada uno, los pagos que salieron del efectivo y lo que dice el sistema. No se guarda nada.</p>
+      <h2>Contador de billetes</h2>
+      <div class="card">` + billetes.map((b) => `
+        <div class="brow" data-b="${b}">
+          <div class="den">${pesos(b)}</div>
+          <input type="text" inputmode="numeric" autocomplete="off" placeholder="0" value="${saved && saved.billetes && saved.billetes[b] ? esc(saved.billetes[b]) : ''}">
+          <div class="sub" data-sub>${pesos(0)}</div>
+        </div>`).join('') + `
+        <div class="brow total"><div class="den">Efectivo contado</div><div></div><div class="sub" id="cj-contado">${pesos(0)}</div></div>
+      </div>
+      <h2>Pagos de caja</h2>
+      <div class="card">
+        <div id="cj-gastos"></div>
+        <button type="button" class="btn secondary small" id="cj-add">+ Agregar pago</button>
+        <div class="brow total"><div class="den">Total pagos</div><div></div><div class="sub" id="cj-gastos-total">${pesos(0)}</div></div>
+      </div>
+      <h2>Sistema</h2>
+      <div class="card">
+        <label class="field"><span>Efectivo según el sistema</span><input id="cj-sistema" type="text" inputmode="numeric" autocomplete="off" placeholder="0" value="${saved && saved.sistema ? esc(saved.sistema) : ''}"></label>
+        <div class="brow total"><div class="den">Tiene que haber (sistema − pagos)</div><div></div><div class="sub" id="cj-esperado">${pesos(0)}</div></div>
+      </div>
+      <div id="cj-result" class="cajares"></div>
+      <button type="button" class="btn secondary small" id="cj-clear">Limpiar todo</button>`;
+
+    const gastosBox = document.getElementById('cj-gastos');
+    const addGasto = (g) => {
+      const row = document.createElement('div');
+      row.className = 'grow';
+      row.innerHTML = `<input type="text" class="g-con" autocomplete="off" placeholder="Concepto" value="${esc(g.concepto || '')}"><input type="text" class="g-monto" inputmode="numeric" autocomplete="off" placeholder="$ 0" value="${esc(g.monto || '')}"><button type="button" class="link-btn g-del" aria-label="Quitar">✕</button>`;
+      row.querySelector('.g-del').addEventListener('click', () => { row.remove(); if (!gastosBox.children.length) addGasto({}); calc(); });
+      row.querySelectorAll('input').forEach((i) => i.addEventListener('input', calc));
+      gastosBox.appendChild(row);
+    };
+    gastos0.forEach(addGasto);
+    document.getElementById('cj-add').addEventListener('click', () => { addGasto({}); gastosBox.lastElementChild.querySelector('.g-con').focus(); });
+
+    function calc() {
+      let contado = 0; const bil = {};
+      app.querySelectorAll('.brow[data-b]').forEach((r) => {
+        const n = num(r.querySelector('input').value) || 0; const b = Number(r.dataset.b);
+        bil[b] = r.querySelector('input').value; contado += n * b;
+        r.querySelector('[data-sub]').textContent = pesos(n * b);
+      });
+      let gastos = 0; const gl = [];
+      gastosBox.querySelectorAll('.grow').forEach((r) => { const m = num(r.querySelector('.g-monto').value) || 0; gastos += m; gl.push({ concepto: r.querySelector('.g-con').value, monto: r.querySelector('.g-monto').value }); });
+      const sistemaRaw = document.getElementById('cj-sistema').value; const sistema = num(sistemaRaw);
+      document.getElementById('cj-contado').textContent = pesos(contado);
+      document.getElementById('cj-gastos-total').textContent = pesos(gastos);
+      const esperado = (sistema || 0) - gastos;
+      document.getElementById('cj-esperado').textContent = pesos(esperado);
+      const res = document.getElementById('cj-result');
+      if (sistema == null) { res.className = 'cajares'; res.innerHTML = `<span class="k">Resultado</span>Cargá el efectivo según el sistema.`; }
+      else {
+        const dif = contado - esperado;
+        if (Math.abs(dif) < 0.5) { res.className = 'cajares ok'; res.innerHTML = `<span class="k">Caja OK</span>Contado ${pesos(contado)} = sistema ${pesos(sistema)}${gastos ? ` − pagos ${pesos(gastos)}` : ''}.`; }
+        else if (dif < 0) { res.className = 'cajares falta'; res.innerHTML = `<span class="k">Faltan ${pesos(-dif)}</span>Contado ${pesos(contado)}, tendría que haber ${pesos(esperado)}.`; }
+        else { res.className = 'cajares sobra'; res.innerHTML = `<span class="k">Sobran ${pesos(dif)}</span>Contado ${pesos(contado)}, tendría que haber ${pesos(esperado)}.`; }
+      }
+      try { sessionStorage.setItem('salon_caja', JSON.stringify({ billetes: bil, gastos: gl, sistema: sistemaRaw })); } catch (_) { /* sin storage */ }
+    }
+    app.querySelectorAll('.brow[data-b] input').forEach((i) => i.addEventListener('input', calc));
+    document.getElementById('cj-sistema').addEventListener('input', calc);
+    document.getElementById('cj-clear').addEventListener('click', () => { try { sessionStorage.removeItem('salon_caja'); } catch (_) { /* */ } renderCaja(); });
+    calc();
   }
 
   // ---------- ajustes (PIN) ----------
