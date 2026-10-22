@@ -121,6 +121,7 @@
         <label class="field"><span>Fecha</span><input id="fecha" type="date" value="${fecha0}" max="${hoyISO()}"></label>
         <div id="cierre-info" class="lede" style="margin:0"></div>
         <div id="pin-wrap" hidden><label class="field"><span>PIN (día anterior a ayer)</span><input id="pin" type="password" inputmode="numeric" autocomplete="off" value="${esc(API.pin.get())}"></label></div>
+        <button type="button" class="btn secondary small" id="desde-reporte" hidden>Completar ventas y tragos desde el reporte</button>
       </div>
       <p class="lede">Contar siempre al cierre. STOCK es lo que quedó; VENTA es lo vendido solo, sin trago. Lo que quede vacío no se guarda.</p>`;
     for (const g of groupBy(bebidasActivas(), 'categoria')) {
@@ -202,10 +203,18 @@
         document.getElementById('nota').value = c.nota || '';
         let info = c.existe ? `Cierre de ${fechaLarga(f)} ya cargado. Podés corregirlo y volver a guardar.` : `${fechaLarga(f)}: sin cierre cargado.`;
         // Ventas y tragos desde el reporte del sistema: completa solo los campos vacíos.
+        // El botón "Completar desde el reporte" pisa todo con lo que dice el sistema.
+        const btnRep = document.getElementById('desde-reporte'); btnRep.hidden = true; btnRep.onclick = null;
         try {
           const v = await API.ventasDiaGet(f);
           if (v.existe) {
             const { beb, trg } = ventasPorDestino(v); let n = 0;
+            btnRep.hidden = false;
+            btnRep.onclick = () => {
+              rows.forEach((r) => { const el = r.querySelector('[data-f=venta]'); if (el) el.value = beb[r.dataset.id] != null ? String(beb[r.dataset.id]) : '0'; });
+              trows.forEach((r) => { r.querySelector('input').value = trg[r.dataset.trago] != null ? String(trg[r.dataset.trago]) : '0'; });
+              status.innerHTML = `<div class="status ok">Ventas y tragos reemplazados por los del reporte. Falta guardar.</div>`;
+            };
             rows.forEach((r) => { const el = r.querySelector('[data-f=venta]'); if (el && el.value === '' && beb[r.dataset.id] != null) { el.value = String(beb[r.dataset.id]); n++; } });
             trows.forEach((r) => { const el = r.querySelector('input'); if (el.value === '' && trg[r.dataset.trago] != null) { el.value = String(trg[r.dataset.trago]); n++; } });
             info += n ? ` Ventas y tragos completados desde el reporte del sistema (${n} campos): solo falta contar el stock.` : ' El reporte del sistema de ese día ya está cargado.';
