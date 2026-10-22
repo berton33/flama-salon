@@ -1,0 +1,39 @@
+name: Aviso de reporte no subido
+
+# Todos los días a las 11:00 de Argentina (14:00 UTC) revisa si falta el reporte de ayer
+# (los martes el local está cerrado y no cuentan). Si falta, manda un mail.
+# Requiere estos secrets en el repositorio: MAIL_SERVER, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD, MAIL_TO.
+on:
+  schedule:
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+
+jobs:
+  revisar:
+    if: github.repository == 'berton33/flama-salon'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Consultar días sin reporte
+        id: check
+        run: |
+          r=$(curl -s -X POST "https://avupnoituvcqifgrvkve.supabase.co/rest/v1/rpc/ventas_faltantes" \
+            -H "apikey: sb_publishable_Kt2lx5lzilARZ03hPUDDQA_xfx5yLEC" \
+            -H "Authorization: Bearer sb_publishable_Kt2lx5lzilARZ03hPUDDQA_xfx5yLEC" \
+            -H "Content-Type: application/json" -d '{"p_dias": 1}')
+          echo "respuesta: $r"
+          faltan=$(echo "$r" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(",".join(d.get("faltantes",[])))')
+          echo "faltan=$faltan" >> "$GITHUB_OUTPUT"
+      - name: Enviar mail
+        if: steps.check.outputs.faltan != ''
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_SERVER }}
+          server_port: ${{ secrets.MAIL_PORT }}
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "FLAMA · No se subió el reporte del ${{ steps.check.outputs.faltan }}"
+          to: ${{ secrets.MAIL_TO }}
+          from: FLAMA Salón
+          body: |
+            No se subió el reporte del sistema correspondiente al ${{ steps.check.outputs.faltan }}.
+            Subilo desde https://berton33.github.io/flama-salon/#/reporte

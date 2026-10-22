@@ -65,6 +65,7 @@
       case 'control': topbarSub.textContent = 'Control'; return renderControl();
       case 'utensilios': topbarSub.textContent = 'Utensilios'; return renderUtensilios(id || 'conteo');
       case 'caja': topbarSub.textContent = 'Caja'; return renderCaja();
+      case 'reporte': topbarSub.textContent = 'Reporte del sistema'; return renderReporte();
       case 'ajustes': topbarSub.textContent = 'Ajustes'; return renderAjustes();
       default: location.hash = '#/';
     }
@@ -74,6 +75,7 @@
   function renderInicio() {
     app.innerHTML = `<div class="home">
       <a href="#/cierre">Cierre del día</a>
+      <a href="#/reporte">Reporte</a>
       <a href="#/ingresos">Ingresos</a>
       <a href="#/stock">Ver stock</a>
       <a href="#/control">Control</a>
@@ -198,7 +200,20 @@
         });
         trows.forEach((r) => { const it = (c.tragos || []).find((x) => x.trago_id === r.dataset.trago); r.querySelector('input').value = it ? String(it.cantidad) : ''; });
         document.getElementById('nota').value = c.nota || '';
-        document.getElementById('cierre-info').textContent = c.existe ? `Cierre de ${fechaLarga(f)} ya cargado. Podés corregirlo y volver a guardar.` : `${fechaLarga(f)}: sin cierre cargado.`;
+        let info = c.existe ? `Cierre de ${fechaLarga(f)} ya cargado. Podés corregirlo y volver a guardar.` : `${fechaLarga(f)}: sin cierre cargado.`;
+        // Ventas y tragos desde el reporte del sistema: completa solo los campos vacíos.
+        try {
+          const v = await API.ventasDiaGet(f);
+          if (v.existe) {
+            const { beb, trg } = ventasPorDestino(v); let n = 0;
+            rows.forEach((r) => { const el = r.querySelector('[data-f=venta]'); if (el && el.value === '' && beb[r.dataset.id] != null) { el.value = String(beb[r.dataset.id]); n++; } });
+            trows.forEach((r) => { const el = r.querySelector('input'); if (el.value === '' && trg[r.dataset.trago] != null) { el.value = String(trg[r.dataset.trago]); n++; } });
+            info += n ? ` Ventas y tragos completados desde el reporte del sistema (${n} campos): solo falta contar el stock.` : ' El reporte del sistema de ese día ya está cargado.';
+          } else {
+            info += ' Sin reporte del sistema para ese día: subilo en Reporte para no cargar las ventas a mano.';
+          }
+        } catch (_) { /* sin reporte, se carga a mano */ }
+        document.getElementById('cierre-info').textContent = info;
       } catch (e) { status.innerHTML = `<div class="status err">${errorMsg(e)}</div>`; }
     }
     fechaEl.addEventListener('change', cargarFecha);
@@ -557,6 +572,128 @@
   }
 
 
+
+  // ---------- reporte del sistema (export diario .xlsx) ----------
+  const fechaDeArchivo = (nombre) => {
+    const m = /(\d{1,2})-(\d{1,2})/.exec(nombre || '');
+    if (!m) return null;
+    const hoy = new Date(); let y = hoy.getFullYear(); const mes = Number(m[2]), dia = Number(m[1]);
+    if (mes > hoy.getMonth() + 2) y -= 1; // archivo de fin de año anterior
+    return `${y}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+  };
+
+  function cargarLectorExcel() {
+    if (window.XLSX) return Promise.resolve();
+    return new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload = res; s.onerror = () => rej(new Error('No se pudo cargar el lector de Excel. Revisá la conexión.'));
+      document.head.appendChild(s);
+    });
+  }
+
+  // Lee la hoja "General" del export: resumen de caja y "Montos por producto".
+  function leerReporte(wb) {
+    const ws = wb.Sheets['General'] || wb.Sheets[wb.SheetNames[0]];
+    const rows = window.XLSX.utils.sheet_to_json(ws, { header: 1, raw: true });
+    const resumen = {}; const items = []; let enProd = false, enPuesto = false;
+    for (const r of rows) {
+      const a = r[0] == null ? '' : String(r[0]).trim();
+      if (!a) continue;
+      if (a === 'Efectivo') resumen.efectivo = Number(r[4]) || 0;
+      else if (a === 'MERCADO') resumen.mercado = Number(r[4]) || 0;
+      if (a.startsWith('Montos por puesto')) { enPuesto = true; continue; }
+      if (enPuesto && a.startsWith('Totales')) { resumen.pedidos = Number(r[1]) || 0; resumen.total = Number(r[4]) || 0; enPuesto = false; continue; }
+      if (a.startsWith('Montos por producto')) { enProd = true; continue; }
+      if (enProd && (a.startsWith('Totales') || a.startsWith('Env') || a.startsWith('Insumos'))) { enProd = false; continue; }
+      if (enProd) {
+        const cant = Number(r[1]);
+        if (isFinite(cant) && cant > 0) items.push({ producto: a.replace(/^\d+\s+/, '').replace(/\s+/g, ' ').trim().toUpperCase(), cantidad: cant, importe: isFinite(Number(r[4])) ? Number(r[4]) : null });
+      }
+    }
+    if (!items.length && resumen.efectivo == null) throw new Error('El archivo no tiene el formato del reporte del sistema.');
+    return { resumen, items };
+  }
+
+  async function renderReporte() {
+    app.innerHTML = `<a class="back" href="#/">‹ Inicio</a><h1>Reporte del sistema</h1>
+      <p class="lede">Subí el export diario del sistema (.xlsx). Con eso el cierre de bebidas y la caja se completan solos, y cocina calcula consumos y pedidos.</p>
+      <div class="card">
+        <label class="btn" for="rp-file" style="cursor:pointer">Elegir archivo del reporte</label>
+        <input id="rp-file" type="file" accept=".xlsx,.xls" hidden>
+        <div id="rp-status"></div>
+        <div id="rp-preview" hidden>
+          <label class="field"><span>Fecha del reporte</span><input id="rp-fecha" type="date" max="${hoyISO()}"></label>
+          <div class="meta" id="rp-meta"></div>
+          <div id="rp-items" style="margin-top:12px"></div>
+          <div id="rp-sin"></div>
+          <button class="btn" id="rp-subir">Subir reporte</button>
+        </div>
+      </div>
+      <h2>Últimos reportes subidos</h2><div class="card" id="rp-list"><p class="msg">Cargando…</p></div>`;
+    const status = document.getElementById('rp-status');
+    let parsed = null, archivo = '';
+
+    const paintList = async () => {
+      try {
+        const [r, f] = await Promise.all([API.ventasRango(addDias(hoyISO(), -30), hoyISO()), API.ventasFaltantes(14)]);
+        const falt = f.faltantes || [];
+        let html = falt.length ? `<div class="warn"><span class="k">Días abiertos sin reporte (últimos 14)</span>${falt.map((d) => esc(fechaCorta(d))).join(' · ')}</div>` : `<div class="status ok">Todos los días abiertos de las últimas dos semanas tienen reporte.</div>`;
+        const dias = [...(r.dias || [])].reverse().slice(0, 10);
+        html += dias.length ? `<table><tbody>` + dias.map((d) => `<tr><td><b>${esc(fechaLarga(d.fecha))}</b><br><span class="sub" style="color:var(--gray);font-size:14px">${d.pedidos != null ? `${d.pedidos} pedidos · ` : ''}efectivo ${pesos(d.efectivo)} · MP ${pesos(d.mercado)}</span></td><td class="q">${pesos(d.total)}</td></tr>`).join('') + `</tbody></table>` : `<p class="msg" style="padding:12px 0">Sin reportes en los últimos 30 días.</p>`;
+        document.getElementById('rp-list').innerHTML = html;
+      } catch (e) { document.getElementById('rp-list').innerHTML = `<div class="status err">${errorMsg(e)}</div>`; }
+    };
+    paintList();
+
+    document.getElementById('rp-file').addEventListener('change', async (ev) => {
+      const file = ev.target.files && ev.target.files[0]; if (!file) return;
+      status.innerHTML = `<p class="msg">Leyendo ${esc(file.name)}…</p>`; document.getElementById('rp-preview').hidden = true;
+      try {
+        await cargarLectorExcel();
+        const buf = await file.arrayBuffer();
+        parsed = leerReporte(window.XLSX.read(buf, { type: 'array' })); archivo = file.name;
+        const map = await API.ventasMapGet();
+        const sin = parsed.items.filter((i) => !map.some((m) => m.producto_pos === i.producto)).map((i) => i.producto);
+        document.getElementById('rp-fecha').value = fechaDeArchivo(file.name) || hoyISO();
+        document.getElementById('rp-meta').innerHTML = `
+          <div><span class="k">Efectivo</span><span class="v">${pesos(parsed.resumen.efectivo)}</span></div>
+          <div><span class="k">Mercado Pago</span><span class="v">${pesos(parsed.resumen.mercado)}</span></div>
+          <div><span class="k">Total</span><span class="v">${pesos(parsed.resumen.total)}</span></div>
+          <div><span class="k">Pedidos</span><span class="v">${parsed.resumen.pedidos != null ? fmt(parsed.resumen.pedidos) : '—'}</span></div>`;
+        document.getElementById('rp-items').innerHTML = `<table><tbody>` + parsed.items.map((i) => { const m = map.find((x) => x.producto_pos === i.producto); return `<tr><td>${esc(i.producto)}<br><span class="sub" style="color:var(--gray);font-size:13px">${m ? (m.tipo === 'ignorar' ? 'se ignora' : `${m.tipo} → ${esc(m.destino_id)}`) : '<b style="color:var(--brand)">sin asignar</b>'}</span></td><td class="q">${fmt(i.cantidad)}</td></tr>`; }).join('') + `</tbody></table>`;
+        document.getElementById('rp-sin').innerHTML = sin.length ? `<div class="warn"><span class="k">${sin.length} productos nuevos sin asignar</span>${sin.map(esc).join(', ')}. Se suben igual; asignalos en <a class="link" href="#/ajustes">Ajustes › Productos del sistema</a> para que cuenten en el cierre y en cocina.</div>` : '';
+        status.innerHTML = ''; document.getElementById('rp-preview').hidden = false;
+      } catch (e) { status.innerHTML = `<div class="status err">${esc(e.message)}</div>`; }
+    });
+
+    document.getElementById('rp-subir').addEventListener('click', async () => {
+      if (!parsed) return;
+      const f = document.getElementById('rp-fecha').value;
+      if (!f) { status.innerHTML = `<div class="status err">Elegí la fecha.</div>`; return; }
+      const btn = document.getElementById('rp-subir'); btn.disabled = true; status.innerHTML = '';
+      try {
+        const r = await API.ventasDiaGet(f);
+        if (r.existe && !confirm(`Ya hay un reporte subido para ${fechaLarga(f)}. ¿Reemplazarlo?`)) { btn.disabled = false; return; }
+        await API.ventasSubir(f, parsed.resumen, parsed.items, archivo);
+        status.innerHTML = `<div class="status ok">Reporte de ${esc(fechaLarga(f))} subido: ${parsed.items.length} productos. El cierre de bebidas de ese día ya tiene las ventas y los tragos.</div>`;
+        document.getElementById('rp-preview').hidden = true; parsed = null; document.getElementById('rp-file').value = '';
+        paintList();
+      } catch (e) { status.innerHTML = `<div class="status err">${errorMsg(e)}</div>`; }
+      finally { btn.disabled = false; }
+    });
+  }
+
+  // Ventas del reporte agrupadas por bebida y por trago, según la correspondencia.
+  function ventasPorDestino(v) {
+    const beb = {}, trg = {};
+    for (const i of (v.items || [])) {
+      if (i.tipo === 'bebida' && i.destino_id) beb[i.destino_id] = (beb[i.destino_id] || 0) + Number(i.cantidad);
+      if (i.tipo === 'trago' && i.destino_id) trg[i.destino_id] = (trg[i.destino_id] || 0) + Number(i.cantidad);
+    }
+    return { beb, trg };
+  }
+
   // ---------- caja: contador de billetes y gastos (sin fecha, sin base; solo ayuda a cerrar) ----------
   const pesos = (n) => '$ ' + Math.round(Number(n) || 0).toLocaleString('es-AR');
 
@@ -629,6 +766,11 @@
     }
     app.querySelectorAll('.brow[data-b] input').forEach((i) => i.addEventListener('input', calc));
     document.getElementById('cj-sistema').addEventListener('input', calc);
+    // Si el reporte de hoy ya está subido, trae el efectivo del sistema.
+    API.ventasDiaGet(hoyISO()).then((v) => {
+      const el = document.getElementById('cj-sistema');
+      if (v.existe && v.resumen && v.resumen.efectivo != null && el && el.value === '') { el.value = String(v.resumen.efectivo); calc(); el.insertAdjacentHTML('afterend', `<div class="lede" style="margin:6px 0 0">Efectivo según el reporte de hoy, ya subido.</div>`); }
+    }).catch(() => {});
     document.getElementById('cj-clear').addEventListener('click', () => { try { sessionStorage.removeItem('salon_caja'); } catch (_) { /* */ } renderCaja(); });
     calc();
   }
@@ -695,6 +837,9 @@
       <h2>Tragos y recetas</h2>
       <p class="lede">Cuánto consume cada trago de cada bebida: mixers en unidades, destilados en ml.</p>
       <div id="tragos-box"></div>
+      <h2>Productos del sistema</h2>
+      <p class="lede">A qué bebida, trago o producto de cocina corresponde cada producto del reporte. Lo que quede sin asignar no cuenta en el cierre ni en cocina.</p>
+      <div class="card" id="pos-adm"><p class="msg">Cargando…</p></div>
       <h2>Utensilios</h2>
       <div class="card" id="ut-adm"><p class="msg">Cargando…</p></div>
       <div class="card">
@@ -794,6 +939,40 @@
       });
     };
     paintTragos();
+
+    // productos del sistema → bebida / trago / cocina / ignorar
+    const paintPos = async () => {
+      const box = document.getElementById('pos-adm');
+      try {
+        const [map, rango] = await Promise.all([API.ventasMapGet(), API.ventasRango(addDias(hoyISO(), -60), hoyISO())]);
+        let cocina = [];
+        try { const rr = await fetch('/flama-cocina/recetas.json', { cache: 'no-store' }); if (rr.ok) cocina = (await rr.json()).productos.map((p) => ({ id: p.id, nombre: p.nombre })); } catch (_) { /* fuera de GitHub Pages */ }
+        const todos = [...new Set([...map.map((m) => m.producto_pos), ...(rango.sin_asignar || [])])].sort();
+        const opts = (tipo, sel) => {
+          if (tipo === 'bebida') return bebidasActivas().map((b) => `<option value="${esc(b.id)}" ${sel === b.id ? 'selected' : ''}>${esc(b.nombre)}</option>`).join('');
+          if (tipo === 'trago') return tragosActivos().map((x) => `<option value="${esc(x.id)}" ${sel === x.id ? 'selected' : ''}>${esc(x.nombre)}</option>`).join('');
+          if (tipo === 'cocina') return cocina.length ? cocina.map((x) => `<option value="${esc(x.id)}" ${sel === x.id ? 'selected' : ''}>${esc(x.nombre)}</option>`).join('') : `<option value="${esc(sel || '')}">${esc(sel || '(id de recetas.json)')}</option>`;
+          return '';
+        };
+        box.innerHTML = `<table><tbody>` + todos.map((pp) => { const m = map.find((x) => x.producto_pos === pp) || { tipo: '', destino_id: '' };
+          return `<tr data-pp="${esc(pp)}"><td><b>${esc(pp)}</b>${m.tipo ? '' : '<br><span class="sub" style="color:var(--brand);font-size:13px">sin asignar</span>'}</td>
+            <td style="width:110px"><select class="pos-tipo" style="width:100%;font:inherit;font-size:15px;padding:8px;border:2px solid var(--black);border-radius:8px">
+              <option value="" ${m.tipo ? '' : 'selected'}>—</option><option value="bebida" ${m.tipo === 'bebida' ? 'selected' : ''}>Bebida</option><option value="trago" ${m.tipo === 'trago' ? 'selected' : ''}>Trago</option><option value="cocina" ${m.tipo === 'cocina' ? 'selected' : ''}>Cocina</option><option value="ignorar" ${m.tipo === 'ignorar' ? 'selected' : ''}>Ignorar</option></select></td>
+            <td style="width:170px"><select class="pos-dest" style="width:100%;font:inherit;font-size:15px;padding:8px;border:2px solid var(--black);border-radius:8px" ${m.tipo && m.tipo !== 'ignorar' ? '' : 'disabled'}>${opts(m.tipo, m.destino_id)}</select></td>
+            <td style="width:80px;text-align:right"><button type="button" class="btn secondary small pos-save" style="margin:0">OK</button></td></tr>`; }).join('') + `</tbody></table><div id="pos-status"></div>`;
+        box.querySelectorAll('tr[data-pp]').forEach((tr) => {
+          const tipoEl = tr.querySelector('.pos-tipo'), destEl = tr.querySelector('.pos-dest');
+          tipoEl.addEventListener('change', () => { destEl.innerHTML = opts(tipoEl.value, ''); destEl.disabled = !tipoEl.value || tipoEl.value === 'ignorar'; });
+          tr.querySelector('.pos-save').addEventListener('click', async () => {
+            const st = document.getElementById('pos-status'); st.innerHTML = '';
+            if (!tipoEl.value) { st.innerHTML = `<div class="status err">Elegí el tipo para ${esc(tr.dataset.pp)}.</div>`; return; }
+            try { await API.ventasMapSet(pinVal(), tr.dataset.pp, tipoEl.value, tipoEl.value === 'ignorar' ? null : destEl.value, null); API.pin.set(pinVal()); st.innerHTML = `<div class="status ok">${esc(tr.dataset.pp)} asignado.</div>`; paintPos(); }
+            catch (e) { onPinErr(e, st); }
+          });
+        });
+      } catch (e) { box.innerHTML = `<div class="status err">${errorMsg(e)}</div>`; }
+    };
+    paintPos();
 
     // utensilios: activar/desactivar y corregir stock inicial
     const paintUt = (st) => {

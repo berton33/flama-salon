@@ -58,6 +58,12 @@
     utNovedadBorrar: (p, id) => rpc('salon_ut_novedad_borrar', { p_pin: p, p_id: id }),
     utGuardar: (p, ut) => rpc('salon_ut_guardar', { p_pin: p, p_ut: ut }),
     utNuevoPeriodo: (p) => rpc('salon_ut_nuevo_periodo', { p_pin: p }),
-    control: (desde, hasta) => rpc('salon_control', { p_desde: desde, p_hasta: hasta })
+    control: (desde, hasta) => rpc('salon_control', { p_desde: desde, p_hasta: hasta }),
+    ventasSubir: (fecha, resumen, items, archivo) => rpc('ventas_subir', { p_fecha: fecha, p_resumen: resumen, p_items: items, p_archivo: archivo || null }),
+    ventasDiaGet: (fecha) => rpc('ventas_dia_get', { p_fecha: fecha }),
+    ventasRango: (desde, hasta) => rpc('ventas_rango', { p_desde: desde, p_hasta: hasta }),
+    ventasMapGet: () => rpc('ventas_map_get'),
+    ventasMapSet: (p, producto, tipo, destino, nota) => rpc('ventas_map_set', { p_pin: p, p_producto: producto, p_tipo: tipo, p_destino: destino || null, p_nota: nota || null }),
+    ventasFaltantes: (dias) => rpc('ventas_faltantes', { p_dias: dias || 7 })
   };
 })();
